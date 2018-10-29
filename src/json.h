@@ -31,6 +31,13 @@
 #  define JSON_INDENT_STEP 2
 #endif
 
+// @TODO: better comments
+// @TODO: cleaner API
+// @TODO: better explanation
+// @TODO: benchmarks
+// @TODO: refactor
+// @TODO: a lot! Sure all the functionality is here the api is alright but there are a lot of things that could be improved upon.
+
 #ifndef JSON_USE_SINGLE_BYTE
 #  define json_scanf swscanf
 #  define json_printf wprintf
@@ -230,6 +237,7 @@ inline JsonValue json_array(int capacity) {
 }
 
 inline void json_add_value(JsonValue* json, JsonValue value) {
+  // @HARDCODED
   const int ARRAY_START_SIZE = 32;
   
   if (!json->array_value->values) {
@@ -467,6 +475,7 @@ static JsonArray* json_parse_array(JsonContext* c) {
   // Consume s tarting bracket
   json_read(c, 1);
   
+  // @HARDCODED
   const int ARRAY_START_SIZE = 32;
   
   JsonArray* arr = (JsonArray*)json_alloc(sizeof(JsonArray));
@@ -505,7 +514,6 @@ static JsonObject* json_parse_object(JsonContext* c) {
   JsonObject* prev = head;
   
   auto parse_field = [c](JsonObject* curr) -> bool {
-    
     JsonValue tmp = {};
     json_parse_value(c, &tmp);
     
@@ -528,7 +536,6 @@ static JsonObject* json_parse_object(JsonContext* c) {
   };
   
   if (json_peek(c) != JSTR('}')) {
-    
     parse_field(head);
     
     json_char next = json_get(c);
@@ -591,8 +598,8 @@ static void json_parse_value(JsonContext* c, JsonValue* value) {
         value->number_value = json_parse_number(c);
       } else {
         uint64_t word_start = ftell(c->file);
-        
         uint32_t word_length = 0;
+        
         do {
           json_read(c, 1);
           if (c->buffer[0] >= JSTR('a') && c->buffer[0] <= JSTR('z')) {
@@ -667,7 +674,7 @@ static void json_export_value(JsonValue* value, FILE* file, int indent_level, bo
     }
     
     case JSON_NUMBER: {
-      json_fprintf(file, JSTR("%lf"), value->number_value);
+      json_fprintf(file, JSTR("%.6g"), value->number_value);
       break;
     }
     

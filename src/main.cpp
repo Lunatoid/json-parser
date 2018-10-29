@@ -14,6 +14,8 @@ int main() {
   json_add_value(&arr, json_number(2.0f));
   json_add_value(&arr, json_number(3.0f));
   
+  json_add_field(&val, L"funny", json_null());
+  
   json_export(&val, "data/export.json");
   json_free(&val);
   
