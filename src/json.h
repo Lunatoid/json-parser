@@ -326,6 +326,17 @@ static double json_parse_number(JsonContext* c) {
     // Consume 'e' token
     json_read(c, 1);
     
+    char sign = json_peek(c);
+    
+    bool is_positive = true;
+    if (sign == '+') {
+      json_read(c, 1);
+      is_positive = true;
+    } else if (sign == '-') {
+      is_positive = false;
+      json_read(c, 1);
+    }
+    
     num_start = ftell(c->file);
     radix_count = 0;
     do {
@@ -347,7 +358,7 @@ static double json_parse_number(JsonContext* c) {
     } while (isdigit(c->buffer[0]) ||
              (c->buffer[0] == JSTR('.') && radix_count == 1));
     
-    num_end = ftell(c->file) - 1;
+    num_end = ftell(c->file);
     
     num_length = num_end - num_start;
     
@@ -356,6 +367,10 @@ static double json_parse_number(JsonContext* c) {
     
     double exp_num;
     json_scanf(c->buffer, JSTR("%lf"), &exp_num);
+    
+    if (!is_positive) {
+      exp_num *= -1.0;
+    }
     num *= pow(10.0, exp_num);
   }
   
