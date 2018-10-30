@@ -44,6 +44,7 @@
 #  define json_strcmp wcscmp
 #  define json_strcpy wcscpy
 #  define json_strlen wcslen
+#  define json_strncpy wcsncpy
 #  define json_char wchar_t
 #  define json_fgets fgetws
 #  define json_fprintf fwprintf
@@ -57,7 +58,8 @@
 #  define json_printf printf
 #  define json_strcmp strcmp
 #  define json_strcpy strcpy
-#  define json_strcpy strlen
+#  define json_strlen strlen
+#  define json_strncpy strncpy
 #  define json_char char
 #  define json_fgets fgets
 #  define json_fprintf fprintf
@@ -87,11 +89,22 @@ enum JsonType {
 
 struct JsonValue;
 
-JsonValue json_parse(const char* path);
+JsonValue json_parse_from_file(const char* path);
+JsonValue json_parse(const json_char* json_text);
+
 bool json_export(JsonValue* json, const char* path, bool minified = false);
 JsonValue* json_find_field(JsonValue* json, const json_char* key);
 JsonValue& json_find_field_ref(JsonValue* json, const json_char* key);
 void json_free(JsonValue* json);
+
+inline JsonValue json_null();
+inline JsonValue json_number(double value);
+inline JsonValue json_string(const json_char* value);
+inline JsonValue json_object();
+inline void json_add_field(JsonValue* json, const json_char* key, JsonValue value);
+inline JsonValue json_array(int capacity = 0);
+inline void json_add_element(JsonValue* json, JsonValue value);
+inline JsonValue json_bool(bool value);
 
 struct JsonArray {
   JsonValue* values;
@@ -127,15 +140,6 @@ struct JsonValue {
   }
 };
 
-inline JsonValue json_null();
-inline JsonValue json_number(double value);
-inline JsonValue json_string(const json_char* value);
-inline JsonValue json_object();
-inline void json_add_field(JsonValue* json, const json_char* key, JsonValue value);
-inline JsonValue json_array(int capacity = 0);
-inline void json_add_value(JsonValue* json, JsonValue value);
-inline JsonValue json_bool(bool value);
-
 #endif // JSON_H_
 
 #ifdef JSON_IMPLEMENTATION
@@ -147,7 +151,11 @@ inline JsonValue json_bool(bool value);
 #include <math.h>
 
 struct JsonContext {
-  FILE* file;
+  // FILE* file;
+  const json_char* text;
+  uint64_t len;
+  uint64_t curr;
+  
   json_char buffer[256];
   
   bool is_parsing;
@@ -236,7 +244,7 @@ inline JsonValue json_array(int capacity) {
   return json;
 }
 
-inline void json_add_value(JsonValue* json, JsonValue value) {
+inline void json_add_element(JsonValue* json, JsonValue value) {
   // @HARDCODED
   const int ARRAY_START_SIZE = 32;
   
@@ -261,7 +269,9 @@ inline JsonValue json_bool(bool value) {
 }
 
 static void json_read(JsonContext* c, uint32_t count) {
-  if (!feof(c->file) && json_fgets(c->buffer, count + 1, c->file)) {
+  if (c->curr + count < c->len) {
+    json_strncpy(c->buffer, (c->text + c->curr), count);
+    c->curr += count;
     c->buffer[count] = JSTR('\0');
   } else {
     c->buffer[0] = JSTR('\0');
@@ -280,13 +290,13 @@ static json_char json_get(JsonContext* c) {
 
 static json_char json_peek(JsonContext* c) {
   json_char peek = json_get(c);
-  fseek(c->file, -1, SEEK_CUR);
+  c->curr--;
   
   return peek;
 }
 
 static double json_parse_number(JsonContext* c) {
-  uint64_t num_start = ftell(c->file);
+  uint64_t num_start = c->curr;
   
   // Consume negate
   if (json_peek(c) == JSTR('-')) {
@@ -312,10 +322,10 @@ static double json_parse_number(JsonContext* c) {
   } while (isdigit(c->buffer[0]) ||
            (c->buffer[0] == JSTR('.') && radix_count == 1));
   
-  uint64_t num_end = ftell(c->file) - 1;
+  uint64_t num_end = c->curr - 1;
   
   uint32_t num_length = num_end - num_start;
-  fseek(c->file, num_start, SEEK_SET);
+  c->curr = num_start;
   json_read(c, num_length);
   
   double num;
@@ -337,7 +347,7 @@ static double json_parse_number(JsonContext* c) {
       json_read(c, 1);
     }
     
-    num_start = ftell(c->file);
+    num_start = c->curr;
     radix_count = 0;
     do {
       json_read(c, 1);
@@ -358,11 +368,11 @@ static double json_parse_number(JsonContext* c) {
     } while (isdigit(c->buffer[0]) ||
              (c->buffer[0] == JSTR('.') && radix_count == 1));
     
-    num_end = ftell(c->file);
+    num_end = c->curr;
     
     num_length = num_end - num_start;
     
-    fseek(c->file, num_start, SEEK_SET);
+    c->curr = num_start;
     json_read(c, num_length);
     
     double exp_num;
@@ -382,7 +392,7 @@ static json_char* json_parse_string(JsonContext* c) {
   json_read(c, 1);
   
   // Remember file position
-  uint64_t string_start = ftell(c->file);
+  uint64_t string_start = c->curr;
   
   // Calculate string length
   uint32_t string_length = 0;
@@ -418,7 +428,7 @@ static json_char* json_parse_string(JsonContext* c) {
   } while (c->is_parsing);
   
   json_char* str = (json_char*)json_alloc((string_length + 1) * sizeof(json_char));
-  fseek(c->file, string_start, SEEK_SET);
+  c->curr = string_start;
   
   // Calculate string length
   int curr = 0;
@@ -612,7 +622,7 @@ static void json_parse_value(JsonContext* c, JsonValue* value) {
         value->type = JSON_NUMBER;
         value->number_value = json_parse_number(c);
       } else {
-        uint64_t word_start = ftell(c->file);
+        uint64_t word_start = c->curr;
         uint32_t word_length = 0;
         
         do {
@@ -624,7 +634,7 @@ static void json_parse_value(JsonContext* c, JsonValue* value) {
           }
         } while (true);
         
-        fseek(c->file, word_start, SEEK_SET);
+        c->curr = word_start;
         json_read(c, word_length);
         
         if (json_strcmp(c->buffer, JSTR("true")) == 0) {
@@ -644,22 +654,50 @@ static void json_parse_value(JsonContext* c, JsonValue* value) {
   }
 }
 
-JsonValue json_parse(const char* path) {
-  JsonContext c = {};
-  c.is_parsing = true;
+JsonValue json_parse_from_file(const char* path) {
   
-  JsonValue value = {};
+  FILE* file = fopen(path, JSON_READ_MODE);
   
-  c.file = fopen(path, JSON_READ_MODE);
-  
-  if (!c.file) {
+  if (!file) {
     printf("Could not open file '%s'\n", path);
     return {};
   }
   
-  json_parse_value(&c, &value);
+  fseek(file, 0, SEEK_END);
+  uint64_t size = ftell(file);
+  fseek(file, 0, SEEK_SET);
   
-  fclose(c.file);
+  json_char* json_text = (json_char*)json_alloc((size + 1) * sizeof(json_char));
+  
+  json_char* cursor = json_text;
+  while (!feof(file)) {
+    json_fgets(cursor, size, file);
+    cursor = json_text + json_strlen(json_text);
+  }
+  
+  fclose(file);
+  
+  JsonValue value = json_parse(json_text);
+  
+  JSON_FREE(json_text);
+  
+  return value;
+}
+
+JsonValue json_parse(const json_char* json_text) {
+  JsonContext c = {};
+  c.is_parsing = true;
+  
+  // Ignore BOM if present
+  if (JSON_CHAR_MAX >= 65279 && json_text[0] == 65279) {
+    ++json_text;
+  }
+  
+  c.text = json_text;
+  c.len = json_strlen(c.text);
+  
+  JsonValue value = {};
+  json_parse_value(&c, &value);
   
   return value;
 }

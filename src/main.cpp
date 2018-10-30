@@ -21,7 +21,7 @@ int main() {
   json_export(&val, "data/export.json");
   */
   
-  JsonValue val = json_parse("data/test.json");
+  JsonValue val = json_parse_from_file("data/canada.json");
   json_export(&val, "data/test_exp.json");
   json_free(&val);
   
