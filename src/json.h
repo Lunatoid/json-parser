@@ -100,6 +100,7 @@ void json_free(JsonValue* json);
 inline JsonValue json_null();
 inline JsonValue json_number(double value);
 inline JsonValue json_string(const json_char* value);
+inline JsonValue json_string(json_char value);
 inline JsonValue json_object();
 inline void json_add_field(JsonValue* json, const json_char* key, JsonValue value);
 inline JsonValue json_array(int capacity = 0);
@@ -191,6 +192,16 @@ inline JsonValue json_string(const json_char* value) {
   json.type = JSON_STRING;
   json.string_value = (json_char*)json_alloc((json_strlen(value) + 1) * sizeof(json_char));
   json_strcpy(json.string_value, value);
+  
+  return json;
+}
+
+inline JsonValue json_string(json_char value) {
+  JsonValue json = {};
+  json.type = JSON_STRING;
+  json.string_value = (json_char*)json_alloc(2 * sizeof(json_char));
+  json.string_value[0] = value;
+  json.string_value[1] = JSTR('\0');
   
   return json;
 }
