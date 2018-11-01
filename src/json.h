@@ -198,7 +198,6 @@ inline JsonValue json_array(int capacity = 0);
 inline void json_add_element(JsonValue* json, JsonValue value);
 inline JsonValue json_bool(bool value);
 
-
 // Datatypes
 struct JsonArray {
   JsonValue* values;
@@ -268,6 +267,7 @@ struct JsonValue {
 #include <string.h>
 #include <cstdlib>
 #include <math.h>
+#include <inttypes.h>
 
 struct JsonContext {
   // FILE* file;
@@ -398,7 +398,7 @@ inline JsonValue json_bool(bool value) {
 }
 
 static void json_read(JsonContext* c, uint32_t count) {
-  if (c->curr + count < c->len) {
+  if (c->curr + count <= c->len) {
     json_strncpy(c->buffer, (c->text + c->curr), count);
     c->curr += count;
     c->buffer[count] = JSTR('\0');
@@ -626,7 +626,7 @@ static json_char* json_parse_string(JsonContext* c) {
 static void json_parse_value(JsonContext* c, JsonValue* value);
 
 static JsonArray* json_parse_array(JsonContext* c) {
-  // Consume s tarting bracket
+  // Consume tarting bracket
   json_read(c, 1);
   
   // @HARDCODED
@@ -655,6 +655,9 @@ static JsonArray* json_parse_array(JsonContext* c) {
         break;
       }
     }
+  } else {
+    // Consume closing bracket
+    json_read(c, 1);
   }
   
   return arr;
@@ -859,7 +862,16 @@ static void json_export_value(JsonValue* value, FILE* file, int indent_level, bo
     }
     
     case JSON_NUMBER: {
-      json_fprintf(file, JSTR("%.6g"), value->number_value);
+      // Check if number has a decimal place
+      if (fmod(value->number_value, 1.0) == 0.0) {
+        if (value->number_value > 0.0) {
+          json_fprintf(file, JSTR("%"PRIu64), (u64)value->number_value);
+        } else {
+          json_fprintf(file, JSTR("%"PRId64), (s64)value->number_value);
+        }
+      } else {
+        json_fprintf(file, JSTR("%.6g"), value->number_value);
+      }
       break;
     }
     
