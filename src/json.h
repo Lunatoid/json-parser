@@ -865,9 +865,9 @@ static void json_export_value(JsonValue* value, FILE* file, int indent_level, bo
       // Check if number has a decimal place
       if (fmod(value->number_value, 1.0) == 0.0) {
         if (value->number_value > 0.0) {
-          json_fprintf(file, JSTR("%"PRIu64), (u64)value->number_value);
+          json_fprintf(file, JSTR("%"PRIu64), (uint64_t)value->number_value);
         } else {
-          json_fprintf(file, JSTR("%"PRId64), (s64)value->number_value);
+          json_fprintf(file, JSTR("%"PRId64), (int64_t)value->number_value);
         }
       } else {
         json_fprintf(file, JSTR("%.6g"), value->number_value);
