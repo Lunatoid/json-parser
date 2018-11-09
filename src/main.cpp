@@ -5,25 +5,21 @@
 
 int main() {
   
-  JsonValue val = json_object();
-  json_add_field(&val, L"greeting", json_string(L"Hello, world!"));
-  json_add_field(&val, L"numnum", json_number(69.69));
+  JsonValue str = json_string(JSTR("DON'T"));
+  JsonValue arr1 = json_array();
   
-  JsonValue arr = json_array();
-  json_add_field(&val, L"order", arr);
-  json_add_element(&arr, json_number(1.0f));
-  json_add_element(&arr, json_number(2.0f));
-  json_add_element(&arr, json_number(3.0f));
+  json_add_element(&arr1, str);
   
-  json_add_field(&val, L"funny", json_null());
-  json_add_field(&val, L"haha", json_string(L'\u0FC3'));
+  JsonValue arr2 = json_array();
   
-  json_export(&val, "data/export.json");
+  json_add_element(&arr2, str);
   
-  JsonValue val2 = json_parse_from_file("data/canada.json");
-  json_export(&val2, "data/test_exp.json");
-  json_free(&val);
-  json_free(&val2);
+  wprintf(L"1. %s\n", arr1[0].string_value);
+  wprintf(L"2. %s\n", arr2[0].string_value);
+  printf("----------\n");
+  json_free(&arr2);
+  wprintf(L"1. %s\n", arr1[0].string_value);
+  wprintf(L"2. %s\n", arr2[0].string_value);
   
   return 0;
 }

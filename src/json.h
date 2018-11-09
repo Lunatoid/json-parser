@@ -102,8 +102,8 @@
 //      json_add_element(&arr2, str);
 //
 //   In the above example, both arrays have assumed ownership over the string.
-//   If you were to free 1 and still use the other you'd have a free-after-use error. BEWARE
-//   json_duplicate() is still @TODO
+//   If you were to free 1 and still use the other you'd have a free-after-use error. BEWARE!
+//   Consider using json_duplicate() to make copies of a JsonValue.
 //
 //   Adding fields to objects is similar to arrays, you can use json_add_field():
 //      JsonValue obj = json_object();
@@ -187,6 +187,7 @@ bool json_export(JsonValue* json, const char* path, bool minified = false);
 JsonValue* json_find_field(JsonValue* json, const json_char* key);
 JsonValue& json_find_field_ref(JsonValue* json, const json_char* key);
 void json_free(JsonValue* json);
+JsonValue json_duplicate(JsonValue* json);
 
 inline JsonValue json_null();
 inline JsonValue json_number(double value);
@@ -865,9 +866,9 @@ static void json_export_value(JsonValue* value, FILE* file, int indent_level, bo
       // Check if number has a decimal place
       if (fmod(value->number_value, 1.0) == 0.0) {
         if (value->number_value > 0.0) {
-          json_fprintf(file, JSTR("%"PRIu64), (u64)value->number_value);
+          json_fprintf(file, JSTR("%"PRIu64), (uint64_t)value->number_value);
         } else {
-          json_fprintf(file, JSTR("%"PRId64), (s64)value->number_value);
+          json_fprintf(file, JSTR("%"PRId64), (int64_t)value->number_value);
         }
       } else {
         json_fprintf(file, JSTR("%.6g"), value->number_value);
@@ -968,19 +969,19 @@ JsonValue& json_find_field_ref(JsonValue* value, const json_char* key) {
   return dummy;
 }
 
-void json_free(JsonValue* value) {
-  if (!value) return;
+void json_free(JsonValue* json) {
+  if (!json) return;
   
-  switch (value->type) {
+  switch (json->type) {
     case JSON_STRING: {
-      JSON_FREE(value->string_value);
+      JSON_FREE(json->string_value);
       break;
     }
     
     case JSON_OBJECT: {
       // Get latest node
       
-      JsonObject* head = value->object_value;
+      JsonObject* head = json->object_value;
       JsonObject* tmp;
       
       while (head) {
@@ -997,14 +998,60 @@ void json_free(JsonValue* value) {
     }
     
     case JSON_ARRAY: {
-      for (int i = 0; i < value->array_value->count; ++i) {
-        json_free(&value->array_value->values[i]);
+      for (int i = 0; i < json->array_value->count; ++i) {
+        json_free(&json->array_value->values[i]);
       }
-      JSON_FREE(value->array_value->values);
-      JSON_FREE(value->array_value);
+      JSON_FREE(json->array_value->values);
+      JSON_FREE(json->array_value);
       break;
     }
   }
+  
+  *json = json_null();
+}
+
+JsonValue json_duplicate(JsonValue* json) {
+  if (!json) return json_null();
+  
+  switch (json->type) {
+    case JSON_NULL: {
+      return json_null();
+    }
+    
+    case JSON_STRING: {
+      return json_string(json->string_value);
+    }
+    
+    case JSON_NUMBER: {
+      return json_number(json->number_value);
+    }
+    
+    case JSON_OBJECT: {
+      JsonValue dup = json_object();
+      
+      for (JsonObject* obj = json->object_value; obj != nullptr; obj = obj->next) {
+        json_add_field(&dup, obj->key, json_duplicate(obj->value));
+      }
+      
+      return dup;
+    }
+    
+    case JSON_ARRAY: {
+      JsonValue dup = json_array(json->array_value->count);
+      
+      for (int i = 0; i < json->array_value->count; ++i) {
+        json_add_element(&dup, json_duplicate(&json->array_value->values[i]));
+      }
+      
+      return dup;
+    }
+    
+    case JSON_BOOL: {
+      return json_bool(json->bool_value);
+    }
+  }
+  
+  return json_null();
 }
 
 #endif // JSON_IMPLEMENTATION
@@ -1024,11 +1071,11 @@ including commercial applications, and to alter it and redistribute it
 freely, subject to the following restrictions:
 
 1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgment in the product documentation would be
-   appreciated but is not required.
+claim that you wrote the original software. If you use this software
+in a product, an acknowledgment in the product documentation would be
+appreciated but is not required.
 2. Altered source versions must be plainly marked as such, and must not be
-   misrepresented as being the original software.
+misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
 
 */
