@@ -81,15 +81,15 @@
 //   To add elements to an array you can use json_add_element():
 //      JsonValue arr = json_array();
 //      json_add_element(&arr, json_number(10.0));
-//      json_add_element(&arr, json_bool(true));
+//      json_add_element(&arr, json_bool(1));
 //
 //      JsonValue nested_arr = json_array();
 //      json_add_element(&nested_arr, json_string(JSTR("wow")));
 //
 //      json_add_element(&arr, nested_arr);
 //
-//   Note that it will take care of resizing an array.
-//   Right now there is no way to remove elements. It's still @TODO
+//   If you want to remove an element, you can use json_remove_element(&arr, index)
+//   Note that it will take care of resizing an array. It only grows.
 //   If you add a heap-allocated JsonValue (array/object/string) to a JsonValue it will assume ownership of the pointer.
 //   
 //   DON'T DO THIS:
@@ -109,7 +109,6 @@
 //      JsonValue obj = json_object();
 //      json_add_field(&obj, JSTR("key"), json_number(10.0));
 //
-//   Right now there is no way to remove fields. It's still @TODO
 //   Note that there it will not check if a certain field already exists as per the ECMA-404 standard.
 //   More control over seeing if fields exist/removing fields/etc is still @TODO
 //
@@ -117,7 +116,7 @@
 //
 //   To export a JsonValue all you have to do is call json_export():
 //     JsonValue json = ...;
-//     bool minified = true;
+//     JSON_BOOL_TYPE minified = 1;
 //     json_export(&json, "path/to/file.json", minified);
 //
 //   Stringifying a JsonValue is still @TODO
@@ -131,11 +130,13 @@
 
 #include <stdint.h>
 #include <memory.h>
-#include <cstdio>
-#include <cstdarg>
-#include <cassert>
-#include <cwchar>
+#include <stdio.h>
+#include <stdarg.h>
+#include <assert.h>
+#include <wchar.h>
+#include <malloc.h>
 
+// @TODO: cleanup
 #ifndef JSON_USE_SINGLE_BYTE
 #  define json_scanf swscanf
 #  define json_printf wprintf
@@ -147,6 +148,7 @@
 #  define json_fgets fgetws
 #  define json_fprintf fwprintf
 #  define JSON_CHAR_MAX WCHAR_MAX
+// @TODO: check if this is required for Linux
 #  define JSON_READ_MODE "r, ccs=UTF-8"
 #  define JSON_WRITE_MODE "w, ccs=UTF-8"
 #  define JSTR_CONCAT(a, b) a##b
@@ -167,53 +169,72 @@
 #  define JSTR(str) str
 #endif
 
+#ifndef JSON_BOOL_TYPE
+#  ifdef __cplusplus
+#    define JSON_BOOL_TYPE bool
+#  else
+#    define JSON_BOOL_TYPE uint8_t
+#  endif
+#endif
+
 // Types within JSON
-enum JsonType {
+typedef enum JsonType {
   JSON_NULL,
   JSON_STRING,
   JSON_NUMBER,
   JSON_OBJECT,
   JSON_ARRAY,
   JSON_BOOL
-};
+} JsonType;
 
-struct JsonValue;
+typedef struct JsonValue JsonValue;
 
 // API
 JsonValue json_parse_from_file(const char* path);
 JsonValue json_parse(const json_char* json_text);
 
-bool json_export(JsonValue* json, const char* path, bool minified = false);
+JSON_BOOL_TYPE json_export(JsonValue* json, const char* path, JSON_BOOL_TYPE minified);
+
 JsonValue* json_find_field(JsonValue* json, const json_char* key);
+
+#ifdef __cplusplus
 JsonValue& json_find_field_ref(JsonValue* json, const json_char* key);
+#endif
+
+int json_field_count(JsonValue* json, const json_char* key);
+
 void json_free(JsonValue* json);
 JsonValue json_duplicate(JsonValue* json);
 
 inline JsonValue json_null();
 inline JsonValue json_number(double value);
 inline JsonValue json_string(const json_char* value);
-inline JsonValue json_string(json_char value);
+inline JsonValue json_string_char(json_char value);
+
 inline JsonValue json_object();
 inline void json_add_field(JsonValue* json, const json_char* key, JsonValue value);
-inline JsonValue json_array(int capacity = 0);
+
+inline JsonValue json_array();
 inline void json_add_element(JsonValue* json, JsonValue value);
-inline JsonValue json_bool(bool value);
+inline void json_remove_element(JsonValue* json, int index);
+
+inline JsonValue json_bool(JSON_BOOL_TYPE value);
 
 // Datatypes
-struct JsonArray {
+typedef struct JsonArray {
   JsonValue* values;
   uint32_t count;
   uint32_t capacity;
-};
+} JsonArray;
 
-struct JsonObject {
+typedef struct JsonObject {
   json_char* key;
   JsonValue* value;
   
-  JsonObject* next;
-};
+  struct JsonObject* next;
+} JsonObject;
 
-struct JsonValue {
+typedef struct JsonValue {
   JsonType type;
   
   union {
@@ -221,9 +242,10 @@ struct JsonValue {
     double number_value;
     JsonObject* object_value;
     JsonArray* array_value;
-    bool bool_value;
+    JSON_BOOL_TYPE bool_value;
   };
   
+#ifdef __cplusplus
   JsonValue& operator[](const json_char* key) {
     return json_find_field_ref(this, key);
   }
@@ -232,21 +254,19 @@ struct JsonValue {
     assert(this->type == JSON_ARRAY);
     return this->array_value->values[index];
   }
-};
+#endif
+} JsonValue;
 
 // Overwritable #defines
 #ifndef JSON_MALLOC
-#  include <malloc.h>
 #  define JSON_MALLOC(size) malloc(size)
 #endif
 
 #ifndef JSON_REALLOC
-#  include <malloc.h>
 #  define JSON_REALLOC(ptr, size) realloc(ptr, size)
 #endif
 
 #ifndef JSON_FREE
-#  include <malloc.h>
 #  define JSON_FREE(ptr) free(ptr)
 #endif
 
@@ -266,20 +286,19 @@ struct JsonValue {
 
 #include <ctype.h>
 #include <string.h>
-#include <cstdlib>
+#include <stdlib.h>
 #include <math.h>
 #include <inttypes.h>
 
-struct JsonContext {
-  // FILE* file;
+typedef struct JsonContext {
   const json_char* text;
   uint64_t len;
   uint64_t curr;
   
   json_char buffer[256];
   
-  bool is_parsing;
-};
+  JSON_BOOL_TYPE is_parsing;
+} JsonContext;
 
 static void* json_alloc(uint32_t size) {
   void* ptr = (void*)JSON_MALLOC(size);
@@ -292,14 +311,14 @@ static void* json_alloc(uint32_t size) {
 }
 
 inline JsonValue json_null() {
-  JsonValue json = {};
+  JsonValue json = {0};
   json.type = JSON_NULL;
   
   return json;
 }
 
 inline JsonValue json_number(double value) {
-  JsonValue json = {};
+  JsonValue json = {0};
   json.type = JSON_NUMBER;
   json.number_value = value;
   
@@ -307,7 +326,7 @@ inline JsonValue json_number(double value) {
 }
 
 inline JsonValue json_string(const json_char* value) {
-  JsonValue json = {};
+  JsonValue json = {0};
   json.type = JSON_STRING;
   json.string_value = (json_char*)json_alloc((json_strlen(value) + 1) * sizeof(json_char));
   json_strcpy(json.string_value, value);
@@ -315,8 +334,8 @@ inline JsonValue json_string(const json_char* value) {
   return json;
 }
 
-inline JsonValue json_string(json_char value) {
-  JsonValue json = {};
+inline JsonValue json_string_char(json_char value) {
+  JsonValue json = {0};
   json.type = JSON_STRING;
   json.string_value = (json_char*)json_alloc(2 * sizeof(json_char));
   json.string_value[0] = value;
@@ -337,7 +356,7 @@ static inline JsonObject* json_alloc_object(const json_char* key, JsonValue valu
 }
 
 inline JsonValue json_object() {
-  JsonValue json = {};
+  JsonValue json = {0};
   json.type = JSON_OBJECT;
   
   return json;
@@ -350,7 +369,7 @@ inline void json_add_field(JsonValue* json, const json_char* key, JsonValue valu
     json->object_value = json_alloc_object(key, value);
   } else {
     JsonObject* curr = json->object_value;
-    while (true) {
+    for (;;) {
       if (curr->next) {
         curr = curr->next;
       } else {
@@ -361,15 +380,11 @@ inline void json_add_field(JsonValue* json, const json_char* key, JsonValue valu
   }
 }
 
-inline JsonValue json_array(int capacity) {
-  JsonValue json = {};
+inline JsonValue json_array() {
+  JsonValue json = {0};
   json.type = JSON_ARRAY;
   
   json.array_value = (JsonArray*)json_alloc(sizeof(JsonArray));
-  if (capacity > 0) {
-    json.array_value->capacity = capacity;
-    json.array_value->values = (JsonValue*)json_alloc(sizeof(JsonValue) * json.array_value->capacity);
-  }
   
   return json;
 }
@@ -391,8 +406,24 @@ inline void json_add_element(JsonValue* json, JsonValue value) {
   json->array_value->values[json->array_value->count++] = value;
 }
 
-inline JsonValue json_bool(bool value) {
-  JsonValue json = {};
+inline void json_remove_element(JsonValue* json, int index) {
+  if (index < 0 || index >= json->array_value->count || !json->array_value->values) return;
+  
+  // Free the value
+  json_free(&json->array_value->values[index]);
+  
+  // If it's the last element, just decrease the count
+  if (index == json->array_value->count - 1) {
+    --json->array_value->count;
+  } else {
+    // Else, copy everything after it over it
+    memcpy(json->array_value->values + index, json->array_value->values + (index + 1),
+           (json->array_value->count-- - index) * sizeof(JsonValue));
+  }
+}
+
+inline JsonValue json_bool(JSON_BOOL_TYPE value) {
+  JsonValue json = {0};
   json.type = JSON_BOOL;
   json.bool_value = value;
   return json;
@@ -405,7 +436,7 @@ static void json_read(JsonContext* c, uint32_t count) {
     c->buffer[count] = JSTR('\0');
   } else {
     c->buffer[0] = JSTR('\0');
-    c->is_parsing = false;
+    c->is_parsing = 0;
   }
 }
 
@@ -434,7 +465,7 @@ static double json_parse_number(JsonContext* c) {
   }
   
   // Parse integer part
-  bool exponent_found = false;
+  JSON_BOOL_TYPE exponent_found = 0;
   int radix_count = 0;
   do {
     json_read(c, 1);
@@ -446,7 +477,7 @@ static double json_parse_number(JsonContext* c) {
     
     if (c->buffer[0] == JSTR('e') ||
         c->buffer[0] == JSTR('E')) {
-      exponent_found = true;
+      exponent_found = 1;
       break;
     }
   } while (isdigit(c->buffer[0]) ||
@@ -468,12 +499,12 @@ static double json_parse_number(JsonContext* c) {
     
     char sign = json_peek(c);
     
-    bool is_positive = true;
+    JSON_BOOL_TYPE is_positive = 1;
     if (sign == '+') {
       json_read(c, 1);
-      is_positive = true;
+      is_positive = 1;
     } else if (sign == '-') {
-      is_positive = false;
+      is_positive = 0;
       json_read(c, 1);
     }
     
@@ -599,7 +630,7 @@ static json_char* json_parse_string(JsonContext* c) {
               json_printf(JSTR("    Decimal value: %d\n    Max value: %d\n"), hex_num, JSON_CHAR_MAX);
               str[curr++] = JSTR('?');
             } else {
-              str[curr++] = json_char(hex_num);
+              str[curr++] = (json_char)hex_num;
             }
           } else {
             for (int i = 0; i < 5; ++i) {
@@ -639,7 +670,7 @@ static JsonArray* json_parse_array(JsonContext* c) {
     arr->capacity = ARRAY_START_SIZE;
     arr->values = (JsonValue*)json_alloc(sizeof(JsonValue) * arr->capacity);
     
-    while (true) {
+    while (1) {
       if (arr->count >= arr->capacity) {
         // Double the capacity
         arr->capacity *= 2;
@@ -664,6 +695,28 @@ static JsonArray* json_parse_array(JsonContext* c) {
   return arr;
 }
 
+static JSON_BOOL_TYPE json_parse_field(JsonContext* c, JsonObject* curr) {
+  JsonValue tmp = {0};
+  json_parse_value(c, &tmp);
+  
+  if (tmp.type != JSON_STRING) {
+    json_printf(JSTR("Object field must be string\n"));
+    json_free(&tmp);
+    return 0;
+  }
+  
+  curr->key = tmp.string_value;
+  
+  if (json_get(c) != JSTR(':')) {
+    json_printf(JSTR("Expected ':' in object\n"));
+    return 0;
+  }
+  
+  curr->value = (JsonValue*)json_alloc(sizeof(JsonValue));
+  json_parse_value(c, curr->value);
+  return 1;
+}
+
 static JsonObject* json_parse_object(JsonContext* c) {
   // Consume starting brace
   json_read(c, 1);
@@ -671,30 +724,8 @@ static JsonObject* json_parse_object(JsonContext* c) {
   JsonObject* head = (JsonObject*)json_alloc(sizeof(JsonObject));
   JsonObject* prev = head;
   
-  auto parse_field = [c](JsonObject* curr) -> bool {
-    JsonValue tmp = {};
-    json_parse_value(c, &tmp);
-    
-    if (tmp.type != JSON_STRING) {
-      json_printf(JSTR("Object field must be string\n"));
-      json_free(&tmp);
-      return false;
-    }
-    
-    curr->key = tmp.string_value;
-    
-    if (json_get(c) != JSTR(':')) {
-      json_printf(JSTR("Expected ':' in object\n"));
-      return false;
-    }
-    
-    curr->value = (JsonValue*)json_alloc(sizeof(JsonValue));
-    json_parse_value(c, curr->value);
-    return true;
-  };
-  
   if (json_peek(c) != JSTR('}')) {
-    parse_field(head);
+    json_parse_field(c, head);
     
     json_char next = json_get(c);
     if (next == JSTR('}') || next != JSTR(',')) {
@@ -704,10 +735,10 @@ static JsonObject* json_parse_object(JsonContext* c) {
       return head;
     }
     
-    while (true) {
+    while (1) {
       JsonObject* curr = (JsonObject*)json_alloc(sizeof(JsonObject));
       
-      if (!parse_field(curr)) break;
+      if (!json_parse_field(c, curr)) break;
       
       prev->next = curr;
       prev = curr;
@@ -765,22 +796,22 @@ static void json_parse_value(JsonContext* c, JsonValue* value) {
           } else {
             break;
           }
-        } while (true);
+        } while (1);
         
         c->curr = word_start;
         json_read(c, word_length);
         
-        if (json_strcmp(c->buffer, JSTR("true")) == 0) {
+        if (json_strcmp(c->buffer, JSTR("1")) == 0) {
           value->type = JSON_BOOL;
-          value->bool_value = true;
-        } else if (json_strcmp(c->buffer, JSTR("false")) == 0) {
+          value->bool_value = 1;
+        } else if (json_strcmp(c->buffer, JSTR("0")) == 0) {
           value->type = JSON_BOOL;
-          value->bool_value = false;
+          value->bool_value = 0;
         } else if (json_strcmp(c->buffer, JSTR("null")) == 0) {
           value->type = JSON_NULL;
         } else {
           json_printf(JSTR("Unknown token '%s'\n"), c->buffer);
-          c->is_parsing = false;
+          c->is_parsing = 0;
         }
       }
     }
@@ -793,7 +824,9 @@ JsonValue json_parse_from_file(const char* path) {
   
   if (!file) {
     printf("Could not open file '%s'\n", path);
-    return {};
+    
+    JsonValue dummy = {0};
+    return dummy;
   }
   
   fseek(file, 0, SEEK_END);
@@ -818,8 +851,8 @@ JsonValue json_parse_from_file(const char* path) {
 }
 
 JsonValue json_parse(const json_char* json_text) {
-  JsonContext c = {};
-  c.is_parsing = true;
+  JsonContext c = {0};
+  c.is_parsing = 1;
   
   // Ignore BOM if present
   const int BOM_CHAR = 65279;
@@ -830,26 +863,27 @@ JsonValue json_parse(const json_char* json_text) {
   c.text = json_text;
   c.len = json_strlen(c.text);
   
-  JsonValue value = {};
+  JsonValue value = {0};
   json_parse_value(&c, &value);
   
   return value;
 }
 
-static void json_export_value(JsonValue* value, FILE* file, int indent_level, bool minified) {
-  auto print_indent = [file, minified](int indent_level) {
-    if (!minified) {
-      for (int i = 0; i < indent_level; ++i) {
-        json_fprintf(file, JSTR("%c"), JSON_INDENT_CHAR);
-      }
+static void json_print_indent(FILE* file, JSON_BOOL_TYPE minified, int indent_level) {
+  if (!minified) {
+    for (int i = 0; i < indent_level; ++i) {
+      json_fprintf(file, JSTR("%c"), JSON_INDENT_CHAR);
     }
-  };
-  
-  auto print_newline = [file, minified]() {
-    if (!minified) {
-      json_fprintf(file, JSTR("\n"));
-    }
-  };
+  }
+}
+
+static void json_print_newline(FILE* file, JSON_BOOL_TYPE minified) {
+  if (!minified) {
+    json_fprintf(file, JSTR("\n"));
+  }
+}
+
+static void json_export_value(JsonValue* value, FILE* file, int indent_level, JSON_BOOL_TYPE minified) {
   
   switch (value->type) {
     case JSON_NULL: {
@@ -866,9 +900,9 @@ static void json_export_value(JsonValue* value, FILE* file, int indent_level, bo
       // Check if number has a decimal place
       if (fmod(value->number_value, 1.0) == 0.0) {
         if (value->number_value > 0.0) {
-          json_fprintf(file, JSTR("%"PRIu64), (uint64_t)value->number_value);
+          json_fprintf(file, JSTR("%" PRIu64), (uint64_t)value->number_value);
         } else {
-          json_fprintf(file, JSTR("%"PRId64), (int64_t)value->number_value);
+          json_fprintf(file, JSTR("%" PRId64), (int64_t)value->number_value);
         }
       } else {
         json_fprintf(file, JSTR("%.6g"), value->number_value);
@@ -878,95 +912,114 @@ static void json_export_value(JsonValue* value, FILE* file, int indent_level, bo
     
     case JSON_OBJECT: {
       json_fprintf(file, JSTR("{"));
-      print_newline();
+      json_print_newline(file, minified);
       
       if (value->object_value) {
-        for (JsonObject* obj = value->object_value; obj != nullptr; obj = obj->next) {
-          print_indent(indent_level);
+        for (JsonObject* obj = value->object_value; obj != NULL; obj = obj->next) {
+          json_print_indent(file, minified, indent_level);
           json_fprintf(file, JSTR("\"%s\": "), obj->key);
           json_export_value(obj->value, file, indent_level + JSON_INDENT_STEP, minified);
           
           if (obj->next) {
             json_fprintf(file, JSTR(","));
-            print_newline();
+            json_print_newline(file, minified);
           } else {
-            print_newline();
+            json_print_newline(file, minified);
           }
         }
       }
       indent_level -= JSON_INDENT_STEP;
-      print_indent(indent_level);
+      json_print_indent(file, minified, indent_level);
       json_fprintf(file, JSTR("}"));
       break;
     }
     
     case JSON_ARRAY: {
       json_fprintf(file, JSTR("["));
-      print_newline();
+      json_print_newline(file, minified);
       
       for (int i = 0; i < value->array_value->count; ++i) {
-        print_indent(indent_level);
+        json_print_indent(file, minified, indent_level);
         json_export_value(&value->array_value->values[i], file, indent_level + JSON_INDENT_STEP, minified);
         
         if (i + 1 < value->array_value->count) {
           json_fprintf(file, JSTR(","));
-          print_newline();
+          json_print_newline(file, minified);
         } else {
-          print_newline();
+          json_print_newline(file, minified);
         }
       }
       indent_level -= JSON_INDENT_STEP;
-      print_indent(indent_level);
+      json_print_indent(file, minified, indent_level);
       json_fprintf(file, JSTR("]"));
       break;
     }
     
     case JSON_BOOL: {
-      json_fprintf(file, JSTR("%s"), (value->bool_value) ? JSTR("true") : JSTR("false"));
+      json_fprintf(file, JSTR("%s"), (value->bool_value) ? JSTR("1") : JSTR("0"));
       break;
     }
   }
 }
 
-bool json_export(JsonValue* value, const char* path, bool minified) {
-  if (!value || !path) return false;
+JSON_BOOL_TYPE json_export(JsonValue* json, const char* path, JSON_BOOL_TYPE minified) {
+  if (!json || !path) return 0;
   
   FILE* file = fopen(path, JSON_WRITE_MODE);
   
   if (!file) {
     printf("Could not create file for writing '%s'\n", path);
-    return false;
+    return 0;
   }
   
-  json_export_value(value, file, JSON_INDENT_STEP, minified);
+  json_export_value(json, file, JSON_INDENT_STEP, minified);
   
   fflush(file);
   fclose(file);
   
-  return true;
+  return 1;
 }
 
-JsonValue* json_find_field(JsonValue* value, const json_char* key) {
-  if (!value || !key || value->type != JSON_OBJECT) return nullptr;
+JsonValue* json_get_field(JsonValue* json, const json_char* key) {
+  if (!json || !key || json->type != JSON_OBJECT) return NULL;
   
-  for (JsonObject* v = value->object_value; v != nullptr; v = v->next) {
+  for (JsonObject* v = json->object_value; v != NULL; v = v->next) {
     if (json_strcmp(key, v->key) == 0) {
       return v->value;
     }
   }
   
-  return nullptr;
+  return NULL;
 }
 
-JsonValue& json_find_field_ref(JsonValue* value, const json_char* key) {
-  for (JsonObject* v = value->object_value; v != nullptr; v = v->next) {
+#ifdef __cplusplus
+
+JsonValue& json_get_field_ref(JsonValue* json, const json_char* key) {
+  JsonValue null = json_null();
+  JsonValue& val = null;
+  
+  for (JsonObject* v = json->object_value; v != NULL; v = v->next) {
     if (json_strcmp(key, v->key) == 0) {
-      return *v->value;
+      val = *v->value;
+      break;
     }
   }
   
-  JsonValue dummy = {};
-  return dummy;
+  return val;
+}
+
+#endif
+
+int json_field_count(JsonValue* json, const json_char* key) {
+  int count = 0;
+  
+  for (JsonObject* v = json->object_value; v != NULL; v = v->next) {
+    if (json_strcmp(key, v->key) == 0) {
+      ++count;
+    }
+  }
+  
+  return count;
 }
 
 void json_free(JsonValue* json) {
@@ -1029,7 +1082,7 @@ JsonValue json_duplicate(JsonValue* json) {
     case JSON_OBJECT: {
       JsonValue dup = json_object();
       
-      for (JsonObject* obj = json->object_value; obj != nullptr; obj = obj->next) {
+      for (JsonObject* obj = json->object_value; obj != NULL; obj = obj->next) {
         json_add_field(&dup, obj->key, json_duplicate(obj->value));
       }
       
