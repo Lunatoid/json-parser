@@ -17,6 +17,9 @@ deps/
 *.exe
 *.dll
 *.lib
+*.bat
+*.sh
+*.4coder
 
 
 # User-specific files (MonoDevelop/Xamarin Studio)
