@@ -178,7 +178,7 @@
 #endif
 
 // Types within JSON
-typedef enum JsonType {
+typedef enum {
   JSON_NULL,
   JSON_STRING,
   JSON_NUMBER,
@@ -187,7 +187,42 @@ typedef enum JsonType {
   JSON_BOOL
 } JsonType;
 
-typedef struct JsonValue JsonValue;
+// Datatypes
+typedef struct {
+  struct _JsonValue* values;
+  uint32_t count;
+  uint32_t capacity;
+} JsonArray;
+
+typedef struct _JsonObject {
+  json_char* key;
+  struct _JsonValue* value;
+  
+  struct _JsonObject* next;
+} JsonObject;
+
+typedef struct _JsonValue {
+  JsonType type;
+  
+  union {
+    json_char* string_value;
+    double number_value;
+    JsonObject* object_value;
+    JsonArray* array_value;
+    JSON_BOOL_TYPE bool_value;
+  };
+  
+#ifdef __cplusplus
+  _JsonValue& operator[](const json_char* key) {
+    return json_find_field_ref(this, key);
+  }
+  
+  _JsonValue& operator[](int index) {
+    assert(this->type == JSON_ARRAY);
+    return this->array_value->values[index];
+  }
+#endif
+} JsonValue;
 
 // API
 JsonValue json_parse_from_file(const char* path);
@@ -219,43 +254,6 @@ inline void json_add_element(JsonValue* json, JsonValue value);
 inline void json_remove_element(JsonValue* json, int index);
 
 inline JsonValue json_bool(JSON_BOOL_TYPE value);
-
-// Datatypes
-typedef struct JsonArray {
-  JsonValue* values;
-  uint32_t count;
-  uint32_t capacity;
-} JsonArray;
-
-typedef struct JsonObject {
-  json_char* key;
-  JsonValue* value;
-  
-  struct JsonObject* next;
-} JsonObject;
-
-typedef struct JsonValue {
-  JsonType type;
-  
-  union {
-    json_char* string_value;
-    double number_value;
-    JsonObject* object_value;
-    JsonArray* array_value;
-    JSON_BOOL_TYPE bool_value;
-  };
-  
-#ifdef __cplusplus
-  JsonValue& operator[](const json_char* key) {
-    return json_find_field_ref(this, key);
-  }
-  
-  JsonValue& operator[](int index) {
-    assert(this->type == JSON_ARRAY);
-    return this->array_value->values[index];
-  }
-#endif
-} JsonValue;
 
 // Overwritable #defines
 #ifndef JSON_MALLOC
