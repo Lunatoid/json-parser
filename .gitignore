@@ -9,6 +9,8 @@
 *.idb
 
 deps/
+build/
+
 [Ddebug]
 *.exp
 *.map
