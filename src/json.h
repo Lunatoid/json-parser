@@ -1181,7 +1181,7 @@ extern "C" {
 
 zlib License
 
-(C) Copyright 2018-2019 Tom Mol
+(C) Copyright 2018-2020 Tom Mol
 
 This software is provided 'as-is', without any express or implied
 warranty.  In no event will the authors be held liable for any damages
